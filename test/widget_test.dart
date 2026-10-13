@@ -29,7 +29,7 @@ void main() {
     await db.close();
   });
 
-  Widget buildApp() {
+  Widget buildApp({bool localOnly = false}) {
     return ChangeNotifierProvider<DocumentProvider>.value(
       value: provider,
       child: MaterialApp(
@@ -41,14 +41,15 @@ void main() {
             primary: AppColors.primary,
           ),
         ),
-        home: const HomePage(),
+        home: HomePage(localOnly: localOnly),
       ),
     );
   }
 
   group('Tầng Giao Diện & Tương Tác (Presentation Layer Tests)', () {
-    testWidgets('Khởi chạy ứng dụng và hiển thị màn hình chính với dữ liệu',
-        (WidgetTester tester) async {
+    testWidgets('Khởi chạy ứng dụng và hiển thị màn hình chính với dữ liệu', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(buildApp());
       // Một frame để rebuild sau provider.ready
       await tester.pump();
@@ -65,8 +66,9 @@ void main() {
       expect(find.text('Thêm tài liệu'), findsOneWidget);
     });
 
-    testWidgets('Tìm kiếm tài liệu học tập theo từ khóa',
-        (WidgetTester tester) async {
+    testWidgets('Tìm kiếm tài liệu học tập theo từ khóa', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(buildApp());
       await tester.pump();
 
@@ -81,8 +83,9 @@ void main() {
       expect(find.byType(DocumentCard), findsWidgets);
     });
 
-    testWidgets('Màn hình hiển thị empty state khi không có kết quả',
-        (WidgetTester tester) async {
+    testWidgets('Màn hình hiển thị empty state khi không có kết quả', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(buildApp());
       await tester.pump();
 
@@ -94,6 +97,17 @@ void main() {
 
       // Phải hiển thị thông báo empty state
       expect(find.text('Không tìm thấy tài liệu phù hợp'), findsOneWidget);
+    });
+
+    testWidgets('Hiển thị thông báo khi chạy chế độ cục bộ không có cloud', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildApp(localOnly: true));
+      await tester.pump();
+
+      expect(find.textContaining('Đang chạy chế độ cục bộ'), findsOneWidget);
+      expect(find.textContaining('SUPABASE_PUBLISHABLE_KEY'), findsOneWidget);
+      expect(find.text('Tài liệu Học tập'), findsOneWidget);
     });
   });
 }

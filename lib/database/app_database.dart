@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'package:uuid/uuid.dart';
 
 import '../struct/models/delete_log.dart';
@@ -33,14 +35,17 @@ class AppDatabase {
   StreamController<List<Subject>> _subjectsStreamController =
       StreamController<List<Subject>>.broadcast();
 
-  Stream<List<StudyDocument>> watchAllDocuments() => _documentsStreamController.stream;
+  Stream<List<StudyDocument>> watchAllDocuments() =>
+      _documentsStreamController.stream;
   Stream<List<Subject>> watchAllSubjects() => _subjectsStreamController.stream;
 
   /// Khởi tạo và mở database
   Future<void> init({bool isInMemory = false}) async {
     if (_db != null && _db!.isOpen) return;
 
-    if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+    if (kIsWeb) {
+      databaseFactory = databaseFactoryFfiWeb;
+    } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
     }
@@ -48,6 +53,8 @@ class AppDatabase {
     String path;
     if (isInMemory) {
       path = inMemoryDatabasePath;
+    } else if (kIsWeb) {
+      path = _dbName;
     } else {
       final documentsDirectory = await getApplicationDocumentsDirectory();
       path = p.join(documentsDirectory.path, _dbName);
@@ -90,7 +97,9 @@ class AppDatabase {
 
   Database get db {
     if (_db == null || !_db!.isOpen) {
-      throw Exception('Database chưa được khởi tạo. Vui lòng gọi AppDatabase.init() trước.');
+      throw Exception(
+        'Database chưa được khởi tạo. Vui lòng gọi AppDatabase.init() trước.',
+      );
     }
     return _db!;
   }
@@ -222,7 +231,9 @@ class AppDatabase {
       whereClauses.add('isFavorite = 1');
     }
 
-    final whereString = whereClauses.isNotEmpty ? whereClauses.join(' AND ') : null;
+    final whereString = whereClauses.isNotEmpty
+        ? whereClauses.join(' AND ')
+        : null;
 
     final result = await db.query(
       Tables.studyDocumentsTable,
@@ -289,10 +300,7 @@ class AppDatabase {
   }
 
   Future<List<Subject>> getAllSubjects() async {
-    final result = await db.query(
-      Tables.subjectsTable,
-      orderBy: 'name ASC',
-    );
+    final result = await db.query(Tables.subjectsTable, orderBy: 'name ASC');
     return result.map((e) => Subject.fromMap(e)).toList();
   }
 
@@ -334,7 +342,8 @@ class AppDatabase {
     }
     _db = null;
     // Tái tạo StreamControllers để instance có thể được dùng lại
-    _documentsStreamController = StreamController<List<StudyDocument>>.broadcast();
+    _documentsStreamController =
+        StreamController<List<StudyDocument>>.broadcast();
     _subjectsStreamController = StreamController<List<Subject>>.broadcast();
   }
 }

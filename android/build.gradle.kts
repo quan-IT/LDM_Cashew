@@ -16,6 +16,14 @@ subprojects {
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
 subprojects {
+    if (name == "file_picker") {
+        afterEvaluate {
+            (extensions.findByName("android") as? com.android.build.gradle.BaseExtension)
+                ?.compileSdkVersion("android-36")
+        }
+    }
+}
+subprojects {
     project.evaluationDependsOn(":app")
 }
 

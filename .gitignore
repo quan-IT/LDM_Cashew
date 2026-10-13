@@ -32,6 +32,12 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+/android/app/google-services.json
+/ios/Runner/GoogleService-Info.plist
+/functions/node_modules/
+/functions/lib/
+/functions/.env*
+/functions/.secret.local
 
 # Symbolication related
 app.*.symbols

@@ -1,0 +1,57 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isOwner(ownerUid) {
+      return request.auth != null && request.auth.uid == ownerUid;
+    }
+
+    function isSafeDocumentId(documentId) {
+      return documentId.matches('^[A-Za-z0-9_-]{1,128}$');
+    }
+
+    function isSupportedExtension(fileName) {
+      return fileName.matches(
+        '^[A-Za-z0-9][A-Za-z0-9 _().-]{0,119}\\.(pdf|doc|docx|ppt|pptx|xls|xlsx|jpg|jpeg|png|txt|zip)$'
+      );
+    }
+
+    function isAllowedContentType() {
+      return request.resource.contentType in [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'image/jpeg',
+        'image/png',
+        'text/plain',
+        'application/zip'
+      ];
+    }
+
+    match /documents/{ownerUid}/{documentId}/{fileName} {
+      allow read: if isOwner(ownerUid)
+                  && isSafeDocumentId(documentId)
+                  && isSupportedExtension(fileName);
+
+      // New uploads use a fixed object name; client-provided names are metadata only.
+      allow create, update: if isOwner(ownerUid)
+                            && isSafeDocumentId(documentId)
+                            && fileName.matches(
+                              '^original\\.(pdf|doc|docx|ppt|pptx|xls|xlsx|jpg|jpeg|png|txt|zip)$'
+                            )
+                            && request.resource.size > 0
+                            && request.resource.size <= 52428800
+                            && isAllowedContentType();
+
+      // Also permit owners to clean up safe, supported legacy object names.
+      allow delete: if isOwner(ownerUid)
+                    && isSafeDocumentId(documentId)
+                    && isSupportedExtension(fileName);
+    }
+
+    // No matching rule grants access to any other object.
+  }
+}

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../colors.dart';
 import '../struct/models/study_document.dart';
 import '../struct/state/document_provider.dart';
 import '../widgets/document_card.dart';
 import '../widgets/empty_state_widget.dart';
+import '../widgets/firebase_google_auth_card.dart';
 import '../widgets/search_bar_widget.dart';
 import '../widgets/stats_header_card.dart';
 import '../widgets/subject_chip.dart';
@@ -14,7 +16,9 @@ import 'subject_management_page.dart';
 import 'sync_backup_page.dart';
 
 class HomePage extends StatelessWidget {
-  const HomePage({super.key});
+  const HomePage({super.key, this.localOnly = false});
+
+  final bool localOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -25,7 +29,8 @@ class HomePage extends StatelessWidget {
     final subjects = provider.subjects;
     final stats = provider.statistics;
 
-    final hasActiveFilter = provider.searchQuery.isNotEmpty ||
+    final hasActiveFilter =
+        provider.searchQuery.isNotEmpty ||
         provider.selectedSubjectFk != null ||
         provider.selectedDocType != null ||
         provider.onlyFavorites;
@@ -49,7 +54,9 @@ class HomePage extends StatelessWidget {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const SubjectManagementPage()),
+                MaterialPageRoute(
+                  builder: (context) => const SubjectManagementPage(),
+                ),
               );
             },
           ),
@@ -69,7 +76,9 @@ class HomePage extends StatelessWidget {
         onPressed: () {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (context) => const AddEditDocumentPage()),
+            MaterialPageRoute(
+              builder: (context) => const AddEditDocumentPage(),
+            ),
           );
         },
         backgroundColor: AppColors.primary,
@@ -81,6 +90,39 @@ class HomePage extends StatelessWidget {
           ? const Center(child: CircularProgressIndicator())
           : CustomScrollView(
               slivers: [
+                if (localOnly)
+                  SliverToBoxAdapter(
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest,
+                      child: const Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.cloud_off_rounded),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Đang chạy chế độ cục bộ vì Supabase chưa '
+                                  'được cấu hình. Các chức năng tài liệu cloud '
+                                  'chưa khả dụng. Cấu hình SUPABASE_URL và '
+                                  'SUPABASE_PUBLISHABLE_KEY rồi khởi động lại '
+                                  'ứng dụng để bật cloud.',
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 12),
+                          FirebaseGoogleAuthCard(),
+                        ],
+                      ),
+                    ),
+                  ),
                 // 1. Thẻ thống kê tổng quan
                 SliverToBoxAdapter(
                   child: StatsHeaderCard(
@@ -122,8 +164,10 @@ class HomePage extends StatelessWidget {
                         final subject = subjects[index - 1];
                         return SubjectChip(
                           subject: subject,
-                          isSelected: provider.selectedSubjectFk == subject.subjectPk,
-                          onTap: () => provider.selectSubject(subject.subjectPk),
+                          isSelected:
+                              provider.selectedSubjectFk == subject.subjectPk,
+                          onTap: () =>
+                              provider.selectSubject(subject.subjectPk),
                         );
                       },
                     ),
@@ -134,21 +178,29 @@ class HomePage extends StatelessWidget {
                 if (hasActiveFilter)
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
                       child: Row(
                         children: [
                           Text(
                             'Tìm thấy ${documents.length} kết quả',
                             style: TextStyle(
                               fontSize: 12,
-                              color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+                              color: isDark
+                                  ? AppColors.textSecondaryDark
+                                  : AppColors.textSecondaryLight,
                             ),
                           ),
                           const Spacer(),
                           TextButton.icon(
                             onPressed: () => provider.clearFilters(),
                             icon: const Icon(Icons.clear_all_rounded, size: 16),
-                            label: const Text('Bỏ lọc', style: TextStyle(fontSize: 12)),
+                            label: const Text(
+                              'Bỏ lọc',
+                              style: TextStyle(fontSize: 12),
+                            ),
                             style: TextButton.styleFrom(
                               foregroundColor: AppColors.primary,
                               visualDensity: VisualDensity.compact,
@@ -170,14 +222,18 @@ class HomePage extends StatelessWidget {
                       message: hasActiveFilter
                           ? 'Hãy thử thay đổi từ khóa tìm kiếm hoặc bỏ bớt các tiêu chí lọc.'
                           : 'Nhấn nút "Thêm tài liệu" để bắt đầu lưu trữ bài giảng, bài tập hoặc tài liệu tham khảo.',
-                      buttonText: hasActiveFilter ? 'Bỏ bộ lọc' : 'Thêm tài liệu đầu tiên',
+                      buttonText: hasActiveFilter
+                          ? 'Bỏ bộ lọc'
+                          : 'Thêm tài liệu đầu tiên',
                       onButtonPressed: () {
                         if (hasActiveFilter) {
                           provider.clearFilters();
                         } else {
                           Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (context) => const AddEditDocumentPage()),
+                            MaterialPageRoute(
+                              builder: (context) => const AddEditDocumentPage(),
+                            ),
                           );
                         }
                       },
@@ -187,36 +243,38 @@ class HomePage extends StatelessWidget {
                   SliverPadding(
                     padding: const EdgeInsets.only(bottom: 80, top: 4),
                     sliver: SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (context, index) {
-                          final doc = documents[index];
-                          final subject = provider.getSubjectByPk(doc.subjectFk);
+                      delegate: SliverChildBuilderDelegate((context, index) {
+                        final doc = documents[index];
+                        final subject = provider.getSubjectByPk(doc.subjectFk);
 
-                          return DocumentCard(
-                            document: doc,
-                            subject: subject,
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => DocumentDetailPage(documentPk: doc.documentPk),
+                        return DocumentCard(
+                          document: doc,
+                          subject: subject,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => DocumentDetailPage(
+                                  documentPk: doc.documentPk,
                                 ),
-                              );
-                            },
-                            onToggleFavorite: () => provider.toggleFavorite(doc.documentPk),
-                            onEdit: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => AddEditDocumentPage(document: doc),
-                                ),
-                              );
-                            },
-                            onDelete: () => _confirmDelete(context, provider, doc),
-                          );
-                        },
-                        childCount: documents.length,
-                      ),
+                              ),
+                            );
+                          },
+                          onToggleFavorite: () =>
+                              provider.toggleFavorite(doc.documentPk),
+                          onEdit: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    AddEditDocumentPage(document: doc),
+                              ),
+                            );
+                          },
+                          onDelete: () =>
+                              _confirmDelete(context, provider, doc),
+                        );
+                      }, childCount: documents.length),
                     ),
                   ),
               ],
@@ -224,12 +282,18 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  void _confirmDelete(BuildContext context, DocumentProvider provider, StudyDocument doc) {
+  void _confirmDelete(
+    BuildContext context,
+    DocumentProvider provider,
+    StudyDocument doc,
+  ) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Xác nhận xóa tài liệu?'),
-        content: Text('Xóa "${doc.title}" khỏi cơ sở dữ liệu? Dữ liệu xóa sẽ được ghi nhận vào DeleteLogs.'),
+        content: Text(
+          'Xóa "${doc.title}" khỏi cơ sở dữ liệu? Dữ liệu xóa sẽ được ghi nhận vào DeleteLogs.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -245,7 +309,9 @@ class HomePage extends StatelessWidget {
               await provider.deleteDocument(doc.documentPk);
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Đã xóa tài liệu và tạo bản ghi Tombstone!')),
+                  const SnackBar(
+                    content: Text('Đã xóa tài liệu và tạo bản ghi Tombstone!'),
+                  ),
                 );
               }
             },

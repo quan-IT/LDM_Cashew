@@ -1,204 +1,124 @@
-# Báo Cáo Kiến Trúc: Ứng Dụng Quản Lý Tài Liệu Học Tập
-## Áp dụng Kiến Trúc Cashew
+# Learning Document Manager – Cashew Architecture
 
----
+Ứng dụng Flutter đa nền tảng hỗ trợ quản lý tài liệu học tập theo kiến trúc
+Cashew. Dự án kết hợp lưu trữ cục bộ với dịch vụ đám mây để người dùng có thể
+tổ chức, tìm kiếm và chia sẻ tài liệu.
 
-## 1. Giới Thiệu Kiến Trúc Cashew
+## Chức năng chính
 
-**Cashew** là kiến trúc ứng dụng theo triết lý **Local-First**, nơi dữ liệu được lưu trữ và xử lý cục bộ trước tiên, đảm bảo ứng dụng hoạt động được ngay cả khi không có kết nối mạng. Các nguyên lý cốt lõi được áp dụng trong dự án này:
+- Quản lý tài liệu học tập cục bộ bằng SQLite.
+- Đăng nhập Google thông qua Firebase Authentication.
+- Tải tệp lên Supabase Storage (bucket private `learning-documents`) theo cấu trúc:
+  `documents/{userUid}/{documentId}/original.{extension}`.
+- Lưu metadata và quyền chia sẻ tài liệu trong Supabase.
+- Tìm kiếm, cập nhật tài liệu và chia sẻ theo quyền xem/chỉnh sửa.
+- Sử dụng Supabase Row Level Security để kiểm soát truy cập dữ liệu.
 
-| Nguyên lý | Mô tả | Triển khai trong dự án |
-|-----------|-------|----------------------|
-| **Local-First Storage** | Dữ liệu lưu vào SQLite cục bộ trước | `AppDatabase` + `sqflite` |
-| **Reactive Streams** | UI cập nhật tự động khi dữ liệu thay đổi | `StreamController.broadcast()` + `Provider` |
-| **Tombstone DeleteLogs** | Xóa mềm ghi log để hỗ trợ đồng bộ phân tán | Bảng `DeleteLogs`, `tableType` flag |
-| **BYOS (Backup)** | Người dùng tự quản lý bản sao lưu | `exportBackupJson()` / `importBackupJson()` |
-| **Schema Versioning** | Hỗ trợ nâng cấp lược đồ CSDL | `schemaVersion`, `onUpgrade` callback |
+> Các chức năng cloud cần cấu hình Firebase và Supabase riêng trước khi chạy.
+> Mã nguồn hoặc test local không đồng nghĩa dịch vụ cloud đã được cấu hình hoặc
+> triển khai/xác minh.
 
----
+## Công nghệ
 
-## 2. Sơ Đồ Kiến Trúc Phân Lớp
+- Flutter / Dart
+- SQLite (`sqflite`)
+- Firebase Core, Firebase Authentication, Google Sign-In
+- Firebase Cloud Functions
+- Supabase Flutter / PostgreSQL
+- Provider
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    TẦNG GIAO DIỆN (UI Layer)                    │
-│  HomePage │ AddEditDocumentPage │ DocumentDetailPage │ ...       │
-│  Widgets: DocumentCard, SearchBarWidget, StatsHeaderCard, ...   │
-│                      [Chỉ đọc State, không có Logic]            │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │ watch / notify (Provider Pattern)
-┌───────────────────────────▼─────────────────────────────────────┐
-│                  TẦNG TRẠNG THÁI (State Layer)                  │
-│  DocumentProvider (ChangeNotifier)                               │
-│  • Lắng nghe Reactive Streams từ AppDatabase                    │
-│  • Áp dụng bộ lọc tìm kiếm qua DocumentService                 │
-│  • Cầu nối giữa UI và Business Logic                            │
-└──────────┬──────────────────────────────────┬───────────────────┘
-           │ gọi                              │ đăng ký stream
-┌──────────▼──────────────┐     ┌────────────▼──────────────────┐
-│  TẦNG NGHIỆP VỤ (BLL)  │     │   REACTIVE STREAMS ENGINE     │
-│  DocumentService        │     │   watchAllDocuments()          │
-│  • validateDocument()   │     │   watchAllSubjects()           │
-│  • createDocument()     │     │   StreamController.broadcast() │
-│  • filterAndSort...()   │     └────────────┬──────────────────┘
-│  • calculateStatistics()│                  │ emit khi DB thay đổi
-│  • exportBackupJson()   │     ┌────────────▼──────────────────┐
-│  SubjectService         │     │  TẦNG DỮ LIỆU (Data Layer)   │
-│  SyncClient             │     │  AppDatabase (SQLite / FFI)   │
-└──────────┬──────────────┘     │  • getAllDocuments()           │
-           │ CRUD               │  • insertDocument()            │
-           └────────────────────│  • updateDocument()            │
-                                │  • deleteDocument() + Tombstone│
-                                │  • getAllDeleteLogs()           │
-                                └───────────────────────────────┘
-```
+## Cấu trúc repository
 
----
-
-## 3. Cấu Trúc Thư Mục Dự Án
-
-```
+```text
 lib/
-├── main.dart                    # Điểm vào app, khởi tạo DB
-├── colors.dart                  # Design tokens
-├── database/
-│   ├── app_database.dart        # Data Layer: CRUD + Reactive Streams
-│   ├── database_global.dart     # Singleton DB instance toàn cục
-│   ├── tables.dart              # SQL schema definitions
-│   └── default_data.dart        # Dữ liệu mẫu khởi tạo
-├── struct/                      # Nhân lõi theo kiến trúc Cashew
-│   ├── models/
-│   │   ├── study_document.dart  # Model tài liệu học tập
-│   │   ├── subject.dart         # Model môn học
-│   │   ├── doc_type.dart        # Enum loại tài liệu
-│   │   └── delete_log.dart      # Model Tombstone log
-│   ├── services/
-│   │   ├── document_service.dart  # BLL: validate, filter, stats, backup
-│   │   ├── subject_service.dart   # BLL: quản lý môn học
-│   │   └── sync_client.dart       # BLL: mô phỏng đồng bộ BYOS
-│   ├── helpers/
-│   │   └── date_formats.dart    # Helper định dạng ngày giờ
-│   └── state/
-│       └── document_provider.dart  # State Layer: ChangeNotifier
-├── pages/
-│   ├── home_page.dart           # Màn hình chính
-│   ├── add_edit_document_page.dart  # Thêm/sửa tài liệu
-│   ├── document_detail_page.dart    # Chi tiết tài liệu
-│   ├── subject_management_page.dart # Quản lý môn học
-│   └── sync_backup_page.dart        # Sao lưu & Kiến trúc Cashew
-└── widgets/
-    ├── document_card.dart        # Card hiển thị tài liệu
-    ├── stats_header_card.dart    # Thống kê dashboard
-    ├── search_bar_widget.dart    # Thanh tìm kiếm
-    ├── subject_chip.dart         # Chip lọc môn học
-    └── empty_state_widget.dart   # UI trống
-
-test/
-├── database_test.dart           # Test Tầng Dữ Liệu
-├── document_service_test.dart   # Test Tầng Nghiệp Vụ
-└── widget_test.dart             # Test Tầng Giao Diện
+  database/       SQLite và dữ liệu cục bộ
+  pages/          Màn hình quản lý tài liệu
+  struct/
+    models/       Model dữ liệu
+    services/     Firebase, Supabase và nghiệp vụ
+    state/        State management
+  widgets/        Thành phần giao diện dùng lại
+functions/        Firebase Cloud Functions
+storage.rules     Quy tắc truy cập Firebase Storage
+supabase/         Schema và kiểm thử RLS
+test/             Unit/widget tests
 ```
 
----
+## Bắt đầu
 
-## 4. Các Chức Năng Cốt Lõi
+### Cài dependency và chạy test local
 
-### 4.1 CRUD Tài Liệu Học Tập
-- **Thêm**: `DocumentService.createDocument()` → validate → `AppDatabase.insertDocument()` → stream emit
-- **Sửa**: `DocumentService.updateDocument()` → validate → `AppDatabase.updateDocument()` → stream emit
-- **Xóa**: `AppDatabase.deleteDocument()` → ghi `DeleteLog` (Tombstone) → xóa vật lý → stream emit
-- **Tìm kiếm**: `DocumentService.filterAndSortDocuments()` — lọc theo keyword, môn học, loại tài liệu, yêu thích
-
-### 4.2 Tombstone DeleteLogs (Cashew Pattern)
-Khi xóa tài liệu, thay vì xóa thẳng, hệ thống:
-1. Ghi một bản ghi vào bảng `DeleteLogs` với timestamp
-2. Mới thực sự xóa bản ghi khỏi bảng chính
-3. `DeleteLog` được dùng để giải quyết xung đột khi đồng bộ đa thiết bị
-
-### 4.3 Reactive Streams
-`AppDatabase` sử dụng `StreamController.broadcast()`:
-- Mỗi khi insert/update/delete → gọi `_notifyDocumentsChanged()` → phát luồng
-- `DocumentProvider` lắng nghe stream qua `watchAllDocuments().listen()`
-- UI được rebuild tự động thông qua `ChangeNotifier.notifyListeners()`
-
-### 4.4 BYOS Backup (Bring Your Own Storage)
-- **Xuất**: `DocumentService.exportBackupJson()` → JSON gồm subjects + documents + deleteLogs
-- **Nhập**: `DocumentService.importBackupJson()` → parse JSON → restore vào DB cục bộ
-- Format: `{"app":"StudyMaterialsCashew","version":"1.0.0","exportedAt":"...","subjects":[...],"documents":[...],"deleteLogs":[...]}`
-
----
-
-## 5. Luồng Dữ Liệu (Data Flow Diagram)
-
-```
-[Người dùng nhập]
-      │
-      ▼
-[UI Widget (TextField / Button)]
-      │ callback
-      ▼
-[DocumentProvider.addDocument() / setSearchQuery()]
-      │ gọi service
-      ▼
-[DocumentService.validateDocument() → createDocument()]
-      │ nếu hợp lệ
-      ▼
-[AppDatabase.insertDocument()] ──→ [SQLite DB]
-      │ sau khi lưu
-      ▼
-[_notifyDocumentsChanged()] ──→ [StreamController.add(docs)]
-      │ reactive emit
-      ▼
-[DocumentProvider._docsSub.listen()] ──→ [notifyListeners()]
-      │ rebuild UI
-      ▼
-[HomePage rebuild với dữ liệu mới]
+```powershell
+flutter pub get
+flutter test
 ```
 
----
+### Chạy ứng dụng với các dịch vụ cloud
 
-## 6. Kết Quả Kiểm Thử
+Trước khi chạy cần:
 
+1. Cấu hình Firebase Android/iOS, bật Google Sign-In và kiểm tra Authorized
+   domains cho Web.
+2. Deploy Cloud Functions cần thiết cho custom claim Supabase; không cần
+   Firebase Storage Rules cho các tệp mới của luồng này.
+3. Trong Supabase Dashboard, cấu hình Firebase làm third-party Auth provider
+   để Supabase xác thực Firebase ID token. Tài khoản và mật khẩu vẫn do Firebase
+   Auth quản lý; bảng `public.users` chỉ lưu hồ sơ, không lưu mật khẩu.
+4. Trong Supabase Dashboard → SQL Editor, kiểm tra schema/policy hiện có rồi
+   chạy `supabase/schema.sql`. Script bật RLS và tạo policy cho `users`,
+   `documents` và `document_permissions`. Chủ tài liệu đọc/sửa/xóa tài liệu của
+   mình; người được chia sẻ có thể đọc; quyền `edit` cho phép cập nhật metadata;
+   chỉ chủ sở hữu mới có thể xóa tài liệu hoặc thay tệp. Người dùng chỉ được
+   đọc/cập nhật hồ sơ của chính mình, còn quyền chia sẻ chỉ do chủ tài liệu
+   quản lý. Script không xóa hồ sơ, tài liệu, quyền chia sẻ hoặc URL đang lưu;
+   các ràng buộc quan hệ mới dùng `NOT VALID` để không xóa/chặn dữ liệu cũ khi
+   cài đặt.
+5. Sau khi xem trước, chạy
+   `supabase/migrations/20261014000000_learning_documents_storage.sql` để tạo
+   bucket private `learning-documents` (tối đa 50 MiB) và các policy Storage.
+   Policy Storage chỉ cho chủ sở hữu upload, thay thế và xóa object trong
+   `documents/{uid}/{documentId}/...`; chủ tài liệu và người được chia sẻ mới
+   được đọc object tương ứng. Script dừng nếu bucket cùng tên đã tồn tại nhưng
+   cấu hình khác. Việc đổi luồng ứng dụng không tự di chuyển các tệp đang nằm
+   trong Firebase Storage; các tệp cũ cần được chuyển sang bucket này trước
+   khi tải lại.
+6. Cung cấp Supabase URL và publishable key cho ứng dụng bằng `--dart-define`.
+
+Các script chỉ được chuẩn bị trong repository, không tự kết nối/chạy trên
+project Supabase thật. Trước khi áp dụng, kiểm tra lại các bảng và chính sách
+đang có. Có thể xem danh sách policy bằng:
+
+```sql
+SELECT schemaname, tablename, policyname, permissive, roles, cmd, qual, with_check
+FROM pg_policies
+WHERE schemaname IN ('public', 'storage')
+ORDER BY schemaname, tablename, policyname;
 ```
-✅ 11/11 tests PASS  (flutter test --reporter expanded)
-✅ 0 issues  (flutter analyze)
 
-Tầng Dữ Liệu (database_test.dart):
-  ✅ Khởi tạo CSDL in-memory và kiểm tra dữ liệu mẫu
-  ✅ CRUD Tài liệu học tập (Insert, Read, Update, Delete)
-  ✅ Chuyển đổi trạng thái Yêu thích (toggleFavorite)
-  ✅ Reactive Streams phát tín hiệu khi có thay đổi dữ liệu
+Các policy trên chỉ tồn tại trong project thật sau khi chạy hai script SQL ở
+trên; chúng không được áp dụng tự động từ repository. Tải lên/tải xuống/xóa
+tệp qua Supabase Storage còn cần Firebase ID token có claim
+`role=authenticated`, và cấu hình Supabase third-party Firebase Auth ở bước
+trên. Signed URL tải xuống có thời hạn 5 phút; quyền truy cập được kiểm tra
+bởi policy private bucket khi tạo URL. Các tệp cũ trong Firebase Storage không
+được tự động chuyển hoặc xóa.
 
-Tầng Nghiệp Vụ (document_service_test.dart):
-  ✅ Xác thực hợp lệ khi thêm tài liệu (Validation logic)
-  ✅ Thuật toán tìm kiếm và lọc đa tiêu chí (Search & Multi-criteria Filtering)
-  ✅ Tính toán số liệu thống kê Dashboard (calculateStatistics)
-  ✅ Xuất và Nhập Gói Sao Lưu JSON (BYOS Backup & Restore)
+Kiểm thử RLS bằng `supabase/tests/rls_three_users.sql` sau khi cài schema. Bộ
+kiểm thử dùng UID giả trong transaction và `ROLLBACK`, không tạo tài khoản
+Firebase/Supabase thật.
 
-Tầng Giao Diện (widget_test.dart):
-  ✅ Khởi chạy ứng dụng và hiển thị màn hình chính với dữ liệu
-  ✅ Tìm kiếm tài liệu học tập theo từ khóa
-  ✅ Màn hình hiển thị empty state khi không có kết quả
+Hướng dẫn triển khai và kiểm thử chi tiết được ghi trong
+[Báo cáo 1](<./Báo cáo 1.md>). Báo cáo đánh giá hiện trạng checklist nằm tại
+[Báo cáo 2](<./Báo cáo 2.md>).
+
+## Kiểm thử
+
+```powershell
+flutter test
+flutter analyze
+npm.cmd --prefix functions run build
 ```
 
----
-
-## 7. Công Nghệ Sử Dụng
-
-| Package | Mục đích |
-|---------|----------|
-| `sqflite` + `sqflite_common_ffi` | Local SQLite database (Local-First) |
-| `path_provider` | Tìm thư mục lưu DB theo platform |
-| `provider` | State management (ChangeNotifier pattern) |
-| `uuid` | Tạo Primary Key UUID v4 |
-| `path` | Xây dựng đường dẫn file |
-| `flutter_test` | Unit + Widget testing framework |
-
----
-
-*Báo cáo này đáp ứng đầy đủ 5 tiêu chí của checklist:*
-1. ✅ **Phân tích yêu cầu & sơ đồ luồng dữ liệu** — Xem mục 4, 5
-2. ✅ **Cấu trúc thư mục & phân lớp Cashew** — Xem mục 2, 3
-3. ✅ **CRUD + Tìm kiếm** — Xem mục 4.1
-4. ✅ **Kiểm thử phân tách logic giữa các lớp** — 11/11 tests PASS
-5. ✅ **Báo cáo kiến trúc Cashew** — Tài liệu này
+Các bài `flutter test` hiện tập trung vào logic cục bộ và kiểm thử đơn vị.
+Chúng không thay thế kiểm thử tích hợp với Firebase/Supabase hoặc kiểm thử
+phân quyền bằng các tài khoản người dùng thật.
